@@ -1,18 +1,12 @@
-# midb
-MiDB: Database connectors and utils
+# midb.postgres
+
+PostgreSQL connector and utilities for the midb package.
 
 ## Features
 
-- PostgreSQL connector and utilities
-  - Connection parameters management
-  - Schema management
-  - Data types handling
-
-## Installation
-
-```bash
-pip install midb
-```
+- Connection parameters management
+- Schema management
+- Data types handling
 
 ## Usage
 
@@ -39,6 +33,16 @@ conn_url = conn_params.to_url()  # "postgresql://postgres:password@localhost:543
 schema = PGSchemaDatamodel(...)
 ```
 
-## License
+## Building
 
-See the [LICENSE](LICENSE) file for details.
+This module uses Cython for performance. To build the extension:
+
+```bash
+make build
+```
+
+Or manually:
+
+```bash
+python setup.py build_ext --inplace
+``` 

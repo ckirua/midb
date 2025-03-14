@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools >= 61.0", "wheel >= 0.40.0", "build >= 0.10.0", "cython >= 3.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "midb"
+description = "Database interface library."
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name="ckirua", email="paektec@gmail.com" }
+]
+urls = { Homepage = "https://github.com/paektec/midb" }
+keywords = ["database", "postgres", "sql"]
+requires-python = ">=3.13"
+dynamic = ["dependencies", "version"]
+
+[tool.setuptools]
+include-package-data = true
+packages = ["midb"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+version = {attr = "midb.__about__.__version__"} 
