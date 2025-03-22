@@ -27,7 +27,7 @@ def get_connection_params():
     password = os.getenv("PG_PASSWORD", "password")
     dbname = os.getenv("PG_DB", "postgres")
 
-    print(f"Connecting to PostgreSQL at {host}:{port} as {user}")
+    print(f"Database connection: {host}:{port}")
 
     return PGConnectionParameters(
         host=host,
