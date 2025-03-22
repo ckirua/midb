@@ -22,7 +22,7 @@ cdef class TSDBSql:
         readonly object types  # PGTypes instance
     
     # SQL generation helpers
-    cpdef str create_table(self, str schema, str table, list columns, list constraints=*)
-    cpdef str create_hypertable(self, str schema, str table, str time_column, str interval=*, bint if_not_exists=*)
+    cpdef str create_table(self, object schema, object table=*, object columns=*, object constraints=*)
+    cpdef str create_hypertable(self, object schema, object table=*, object time_column=*, object interval=*, bint if_not_exists=*, dict extra_params=*)
     cpdef str create_index(self, str schema, str table, str name, list columns, str method=*, bint unique=*)
     cpdef str drop_table(self, str schema, str table, bint if_exists=*) 
