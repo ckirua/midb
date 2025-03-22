@@ -1,3 +1,10 @@
-from .parameters cimport PGSchemaParameters
+# This file allows Cython modules in other packages to import our Cython types
 
-__all__ = ["PGSchemaParameters"]
+# Re-export PGTypes from dtypes.pxd
+from .dtypes cimport PGTypes
+
+# Re-export TimescaleDB support
+from .timescale cimport TSDBSql, hypertable_params_t
+
+# Re-export parameter classes
+from .parameters cimport PGSchemaParameters 

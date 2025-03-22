@@ -6,7 +6,13 @@ cimport cython
 @cython.final
 @cython.no_gc_clear
 cdef class PGTypes:
-    # Define SQL type constants
+    # Define as readonly C constants for better performance
+    cdef readonly str VarChar
+    cdef readonly str BigInt
+    cdef readonly str Real
+    cdef readonly str DoublePrecision
+    cdef readonly str TimeStampTz
+
     def __cinit__(self):
         self.VarChar = "VARCHAR"
         self.BigInt = "BIGINT"
@@ -14,7 +20,7 @@ cdef class PGTypes:
         self.DoublePrecision = "DOUBLE PRECISION"
         self.TimeStampTz = "TIMESTAMPTZ"
 
-    # Public Python method to create VARCHAR with length
     @staticmethod
-    def lambdaVarChar(length: int) -> str:
+    @cython.returns(str)
+    def lambdaVarChar(length: cython.int) -> str:
         return "VARCHAR(" + str(length) + ")"
