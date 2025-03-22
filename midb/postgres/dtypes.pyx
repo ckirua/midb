@@ -19,6 +19,7 @@ cdef class PGTypes:
         self.FLOAT = "FLOAT"
         self.JSONB = "JSONB"
         self.BOOLEAN = "BOOLEAN"
+        self.SERIAL = "SERIAL"
         
         # Legacy style names (for backward compatibility)
         self.VarChar = self.VARCHAR
@@ -27,9 +28,11 @@ cdef class PGTypes:
         self.Real = self.REAL
         self.DoublePrecision = self.DOUBLE_PRECISION
         self.TimeStampTz = self.TIMESTAMPTZ
+        self.TimeStamp = self.TIMESTAMP
         self.Float = self.FLOAT
         self.Jsonb = self.JSONB
         self.Boolean = self.BOOLEAN
+        self.serial = self.SERIAL
 
     # Public Python method to create VARCHAR with length
     @staticmethod

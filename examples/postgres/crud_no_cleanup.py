@@ -4,7 +4,7 @@ import os
 from typing import Dict, List, Optional, Union
 
 from dotenv import load_dotenv
-from midb.postgres import PGConnectionParameters, PGSchemaParameters, PGTypes, Pool
+from midb.postgres import PGConnectionParameters, PGTypes, Pool
 
 # Set up logging
 logging.basicConfig(
@@ -261,73 +261,6 @@ async def delete_products(pool, product_ids: List[int]) -> int:
         raise
 
 
-async def drop_products_table(conn) -> None:
-    """Drop the products table to clean up after the demo."""
-    try:
-        await conn.execute("DROP TABLE IF EXISTS public.products CASCADE")
-        logger.info("Products table dropped")
-    except Exception as e:
-        logger.error(f"Error dropping products table: {e}")
-        raise
-
-
-def create_schema_safely(schema_name, table_name, columns_dict):
-    """
-    Example of safely creating schema parameters while handling empty dictionary case.
-
-    Args:
-        schema_name (str): The schema name
-        table_name (str): The table name
-        columns_dict (dict): Dictionary of column name to data type
-
-    Returns:
-        PGSchemaParameters: Valid schema parameters object
-
-    Raises:
-        ValueError: If columns_dict is empty and no default columns could be added
-    """
-    try:
-        # Try to create with the provided dictionary
-        return PGSchemaParameters(
-            schema_name=schema_name,
-            table_name=table_name,
-            dtype_map=columns_dict,
-        )
-    except ValueError as e:
-        # Handle the empty dictionary case
-        if "dtype_map cannot be empty" in str(e):
-            # Add at least an ID column as a default
-            default_types = PGTypes()
-            default_columns = {
-                "id": default_types.serial,
-                "created_at": default_types.TimeStampTz,
-            }
-            return PGSchemaParameters(
-                schema_name=schema_name,
-                table_name=table_name,
-                dtype_map=default_columns,
-            )
-        # Re-raise any other ValueError
-        raise
-
-
-# Example usage
-def example_schema_creation():
-    """Demonstrate safe schema creation with empty dictionary handling."""
-    # This will use default columns if user_columns is empty
-    user_columns = {}  # Empty dictionary from user input
-
-    try:
-        # This safely handles empty dictionary case
-        schema_params = create_schema_safely("public", "users", user_columns)
-        print(f"Created schema params: {schema_params}")
-        # Schema now contains default ID and timestamp columns
-        return schema_params
-    except ValueError as e:
-        print(f"Failed to create schema: {e}")
-        return None
-
-
 def get_connection_params():
     """Get database connection parameters from environment variables."""
     host = os.getenv("PG_HOST", "localhost")
@@ -350,9 +283,6 @@ def get_connection_params():
 
 async def main():
     """Main function to demonstrate CRUD operations."""
-    # Load environment variables
-    load_dotenv()
-
     # Create connection parameters
     params = get_connection_params()
 
@@ -361,15 +291,7 @@ async def main():
     await pool.initialize()
 
     try:
-        # Demonstrate empty dictionary handling
-        print("\n=== Example of handling empty dtype_map ===")
-        schema_params = example_schema_creation()
-        if schema_params:
-            print(
-                f"Successfully created schema with default columns: {schema_params.dtype_map}"
-            )
-
-        # Create table - first drop if exists
+        # Create table if not exists
         await setup_schema(pool)
 
         # Demo: Create products
@@ -441,28 +363,13 @@ async def main():
             )
             print(f"New quantity: {updated_laptop['quantity']}")
 
-        # Demo: Delete operations
-        # Delete one product
-        if batch_ids:
-            await delete_product(pool, batch_ids[0])
-
-        # Delete multiple products
-        if len(batch_ids) > 1:
-            await delete_products(pool, batch_ids[1:])
-
-        # Verify deletions
+        # Show final product list
         remaining_products = await list_products(pool)
-        print(f"Remaining products after deletion: {len(remaining_products)}")
-
-        # Clean up by dropping the table
-        print("\n--- Cleaning up ---")
-        await drop_products_table(pool)
-
-        # Verify table is dropped by trying to list products (should fail)
-        try:
-            await list_products(pool)
-        except Exception as e:
-            print(f"Verified table is dropped: {e}")
+        print("\nFinal product list:")
+        for product in remaining_products:
+            print(
+                f"- {product['id']}: {product['name']} (${product['price']}, qty: {product['quantity']})"
+            )
 
     except Exception as e:
         logger.error(f"Error in CRUD demo: {e}")
