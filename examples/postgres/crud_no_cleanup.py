@@ -282,101 +282,79 @@ def get_connection_params():
 
 
 async def main():
-    """Main function to demonstrate CRUD operations."""
+    """Demonstrate CRUD operations with connection pool."""
     # Create connection parameters
     params = get_connection_params()
 
-    # Create the database pool
-    pool = Pool(params)
-    await pool.initialize()
-
     try:
-        # Create table if not exists
-        await setup_schema(pool)
+        # Create the database pool using context manager
+        async with Pool(params) as pool:
+            # Create schema
+            await setup_schema(pool)
+            logger.info("Schema setup complete")
 
-        # Demo: Create products
-        product_id = await create_product(
-            pool,
-            name="Laptop",
-            description="High-performance laptop with 16GB RAM",
-            price=999.99,
-            quantity=10,
-        )
-
-        # Create multiple products
-        batch_products = [
-            {
-                "name": "Smartphone",
-                "description": "Latest model",
-                "price": 699.99,
-                "quantity": 20,
-            },
-            {
-                "name": "Headphones",
-                "description": "Noise-cancelling",
-                "price": 149.99,
-                "quantity": 30,
-            },
-            {
-                "name": "Tablet",
-                "description": "10-inch screen",
-                "price": 349.99,
-                "quantity": 15,
-            },
-        ]
-        batch_ids = await create_products(pool, batch_products)
-
-        # Demo: Read operations
-        laptop = await get_product(pool, product_id)
-        if laptop:
-            print(f"Retrieved product: {laptop['name']} - ${laptop['price']}")
-
-        # Search products
-        search_results = await search_products(pool, "phone")
-        print(f"Found {len(search_results)} products matching 'phone'")
-
-        # List all products
-        all_products = await list_products(pool)
-        print(f"Total products: {len(all_products)}")
-        for product in all_products:
-            print(
-                f"- {product['id']}: {product['name']} (${product['price']}, qty: {product['quantity']})"
+            # Create a single product
+            product_id = await create_product(
+                pool,
+                "Laptop",
+                "High-performance laptop",
+                999.99,
+                10,
             )
+            logger.info(f"Created product Laptop with ID {product_id}")
 
-        # Demo: Update operations
-        # Update product details
-        await update_product(
-            pool,
-            product_id,
-            price=1099.99,
-            description="High-performance laptop with 32GB RAM and SSD",
-        )
+            # Create multiple products in batch
+            products = [
+                Product("Smartphone", "Latest model", 699.99, 20),
+                Product("Headphones", "Wireless", 149.99, 30),
+                Product("Tablet", "10-inch display", 349.99, 15),
+            ]
+            batch_ids = await create_products(pool, products)
+            logger.info("Created 3 products in batch")
 
-        # Update stock levels
-        await update_stock(pool, product_id, -2)  # Decrease stock by 2
+            # Read operations
+            laptop = await get_product(pool, product_id)
+            if laptop:
+                print(f"Retrieved product: {laptop['name']} - ${laptop['price']}")
 
-        # Verify the updates
-        updated_laptop = await get_product(pool, product_id)
-        if updated_laptop:
-            print(
-                f"Updated product: {updated_laptop['name']} - ${updated_laptop['price']}"
-            )
-            print(f"New quantity: {updated_laptop['quantity']}")
+            # Search products
+            phone_products = await search_products(pool, "phone")
+            print(f"Found {len(phone_products)} products matching 'phone'")
 
-        # Show final product list
-        remaining_products = await list_products(pool)
-        print("\nFinal product list:")
-        for product in remaining_products:
-            print(
-                f"- {product['id']}: {product['name']} (${product['price']}, qty: {product['quantity']})"
-            )
+            # List all products
+            all_products = await list_products(pool)
+            print(f"Total products: {len(all_products)}")
+            for product in all_products:
+                print(
+                    f"- {product['id']}: {product['name']} (${product['price']}, qty: {product['quantity']})"
+                )
+
+            # Update operations
+            await update_product(pool, product_id, price=1099.99)
+            logger.info(f"Updated product {product_id}")
+
+            # Update stock
+            await update_stock(pool, product_id, -2)
+            logger.info(f"Updated product {product_id} stock by -2")
+
+            # Verify the updates
+            updated_laptop = await get_product(pool, product_id)
+            if updated_laptop:
+                print(
+                    f"Updated product: {updated_laptop['name']} - ${updated_laptop['price']}"
+                )
+                print(f"New quantity: {updated_laptop['quantity']}")
+
+            # Show final product list
+            remaining_products = await list_products(pool)
+            print("\nFinal product list:")
+            for product in remaining_products:
+                print(
+                    f"- {product['id']}: {product['name']} (${product['price']}, qty: {product['quantity']})"
+                )
 
     except Exception as e:
         logger.error(f"Error in CRUD demo: {e}")
-    finally:
-        # Close the connection pool
-        await pool.close()
-        logger.info("Connection pool closed")
 
 
 if __name__ == "__main__":
