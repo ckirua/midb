@@ -14,6 +14,7 @@ cdef class PGTypes:
     cdef readonly str JSONB
     cdef readonly str BOOLEAN
     cdef readonly str SERIAL
+    cdef readonly str DECIMAL
     
     # Legacy style names (for backward compatibility)
     cdef readonly str VarChar
@@ -26,4 +27,5 @@ cdef class PGTypes:
     cdef readonly str Float
     cdef readonly str Jsonb
     cdef readonly str Boolean
-    cdef readonly str serial 
+    cdef readonly str serial
+    cdef readonly str Decimal 

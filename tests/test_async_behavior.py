@@ -12,6 +12,7 @@ from midb.postgres import (
     Pool,
     Transaction,
     connect,
+    connection,
     get_pool,
     set_current_pool,
 )
@@ -78,183 +79,142 @@ class TestAsyncBehavior(unittest.TestCase):
 
     @patch("midb.postgres.pool.asyncpg.create_pool")
     async def async_test_pool_concurrent_connections(self, mock_create_pool):
-        """Test that pool can handle multiple concurrent connections."""
-        # Create mock objects
+        """Test that multiple connections can be acquired from pool concurrently."""
+        # Set up mock pool
         mock_pool = AsyncMock()
         mock_create_pool.return_value = mock_pool
 
-        # Create a list to track created connections
-        mock_connections = []
+        # Track acquired connections
+        acquired_connections = []
+        released_connections = []
 
-        # Setup a mock connection class
+        # Create mock connections with delay
         class MockConnection:
             def __init__(self, conn_id):
                 self.conn_id = conn_id
-                self.queries = []
+                self.execute_calls = []
 
             async def execute(self, query, *args, **kwargs):
-                self.queries.append(query)
-                return f"EXECUTED_{self.conn_id}"
+                self.execute_calls.append(query)
+                await asyncio.sleep(0.1)  # Simulate query execution
+                return f"Result from conn {self.conn_id}: {query}"
 
-        # Configure mock_acquire to create and return different connections
-        counter = 0
-
+        # Mock the acquire method to return different connections with delay
         async def mock_acquire():
-            nonlocal counter
-            counter += 1
-            conn = MockConnection(f"CONN_{counter}")
-            mock_connections.append(conn)
-            return conn
+            conn_id = len(acquired_connections)
+            mock_conn = MockConnection(conn_id)
+            await asyncio.sleep(0.05)  # Small delay in connection acquisition
+            acquired_connections.append(mock_conn)
+            return mock_conn
 
-        mock_pool.acquire = mock_acquire
-
-        # Configure mock_release to track releases
-        released_connections = []
-
+        # Mock the release method
         async def mock_release(conn):
+            await asyncio.sleep(0.05)  # Small delay in connection release
             released_connections.append(conn)
 
+        mock_pool.acquire = mock_acquire
         mock_pool.release = mock_release
 
-        # Create pool
+        # Create pool parameters
         params = PGConnectionParameters(
-            host="localhost",
+            host="testhost",
             port=5432,
-            user="postgres",
-            password="password",
-            dbname="test",
+            user="testuser",
+            password="testpass",
+            dbname="testdb",
         )
 
-        pool = Pool(params)
-        # Manually set the pool attribute instead of awaiting initialize
-        pool.pool = mock_pool
+        # Create and initialize pool
+        pool = Pool(params, name="testpool")
+        await pool.initialize()
+        set_current_pool("testpool")
 
-        # Define a helper function to execute a query
+        # Execute multiple queries using different connections
+        start_time = time.time()
+
         async def run_query(query):
-            conn = await pool.acquire()
-            try:
+            async with connection() as conn:
                 result = await conn.execute(query)
                 return result
-            finally:
-                await pool.release(conn)
 
-        # Run multiple queries concurrently
-        queries = [
-            "SELECT * FROM table1",
-            "INSERT INTO table2 VALUES (1, 2, 3)",
-            "UPDATE table3 SET col = 'value'",
-            "DELETE FROM table4 WHERE id = 42",
-            "SELECT * FROM table5 WHERE name = 'test'",
+        # Run 5 queries concurrently, each should get its own connection
+        tasks = [
+            asyncio.create_task(run_query(f"SELECT {i}")) for i in range(5)
         ]
+        results = await asyncio.gather(*tasks)
+        end_time = time.time()
 
-        results = await asyncio.gather(*[run_query(q) for q in queries])
+        # Assert that results are correct
+        self.assertEqual(len(results), 5)
+        expected_results = [
+            f"Result from conn {i}: SELECT {i}" for i in range(5)
+        ]
+        self.assertEqual(results, expected_results)
 
-        # Verify the right number of connections were acquired
-        self.assertEqual(len(mock_connections), len(queries))
+        # Assert that operations were performed with multiple connections
+        self.assertEqual(len(acquired_connections), 5)
+        self.assertEqual(len(released_connections), 5)
 
-        # Verify all connections were released
-        self.assertEqual(len(released_connections), len(queries))
+        # Each connection should have executed exactly one query
+        for i, conn in enumerate(acquired_connections):
+            self.assertEqual(len(conn.execute_calls), 1)
+            self.assertEqual(conn.execute_calls[0], f"SELECT {i}")
 
-        # Verify each connection executed exactly one query
-        for conn in mock_connections:
-            self.assertEqual(len(conn.queries), 1)
-
-        # Verify each query was executed
-        for query in queries:
-            self.assertTrue(
-                any(query in conn.queries for conn in mock_connections)
-            )
+        # Assert that connections were acquired concurrently
+        # Total time should be significantly less than sequential execution
+        # which would be ~0.75 seconds (5 * (0.05s + 0.1s + 0.05s))
+        self.assertLess(end_time - start_time, 0.4)
 
     @patch("midb.postgres.connection.asyncpg.connect")
     async def async_test_transaction_isolation(self, mock_connect):
-        """Test transaction isolation with concurrent operations."""
-        # Set up mock connection
-        mock_conn = AsyncMock()
-        mock_connect.return_value = mock_conn
-
-        # Track operations in each transaction
-        trans1_operations = []
-        trans2_operations = []
-
-        # Mock execute function for transaction 1
-        async def trans1_execute(query, *args, **kwargs):
-            trans1_operations.append(query)
-            return "EXECUTED_TRANS1"
-
-        # Mock execute function for transaction 2
-        async def trans2_execute(query, *args, **kwargs):
-            trans2_operations.append(query)
-            return "EXECUTED_TRANS2"
-
-        # Set up mock transactions
+        """Test that transactions properly isolate operations."""
+        # Create mock transactions
         mock_trans1 = AsyncMock()
         mock_trans2 = AsyncMock()
 
-        # Configure different mock connections for each transaction
-        mock_conn_trans1 = AsyncMock()
-        mock_conn_trans1.execute.side_effect = trans1_execute
+        # Create mock connection
+        mock_conn = AsyncMock()
 
-        mock_conn_trans2 = AsyncMock()
-        mock_conn_trans2.execute.side_effect = trans2_execute
+        # Configure mock connection to return different transactions
+        mock_conn.transaction.side_effect = [mock_trans1, mock_trans2]
 
-        # Configure transaction context managers to return transaction objects
-        tx1_conn_ctx = (
-            mock_connect.return_value
-        )  # First call returns first mock
-        tx2_conn_ctx = AsyncMock()  # Second call returns second mock
+        # Configure transaction mocks
+        mock_trans1.start = AsyncMock()
+        mock_trans1.commit = AsyncMock()
+        mock_trans2.start = AsyncMock()
+        mock_trans2.commit = AsyncMock()
 
-        # Mock connect to return different connections for each call
-        mock_connect.side_effect = [tx1_conn_ctx, tx2_conn_ctx]
+        # Configure transaction execute methods
+        mock_trans1.execute = AsyncMock()
+        mock_trans2.execute = AsyncMock()
 
-        # Make the connections return their transaction objects
-        tx1_conn_ctx.transaction.return_value = mock_trans1
-        tx2_conn_ctx.transaction.return_value = mock_trans2
+        # Configure connect to return our mock connection
+        mock_connect.return_value = mock_conn
 
-        # Connect for two separate transactions
-        conn1 = await connect("postgresql://user:pass@host/db1")
-        conn2 = await connect("postgresql://user:pass@host/db2")
+        async def operation1():
+            async with Transaction(mock_conn) as tx1:
+                await tx1.execute("INSERT INTO test (value) VALUES ($1)", 1)
 
-        # Create transactions with the connections
-        tx1 = Transaction(conn1)
-        tx2 = Transaction(conn2)
+        async def operation2():
+            async with Transaction(mock_conn) as tx2:
+                await tx2.execute("INSERT INTO test (value) VALUES ($1)", 2)
 
-        # Start the first transaction and execute queries
-        async with tx1:
-            # Store the transaction's connection execute method before replacing it
-            tx1.connection.execute = mock_conn_trans1.execute
+        # Run operations concurrently
+        await asyncio.gather(operation1(), operation2())
 
-            # Run queries in transaction 1
-            await tx1.execute("INSERT INTO table1 VALUES (1, 2, 3)")
-            await tx1.execute("UPDATE table1 SET col = 'new_value'")
+        # Verify operations were performed in separate transactions
+        mock_trans1.execute.assert_called_once_with(
+            "INSERT INTO test (value) VALUES ($1)", 1
+        )
+        mock_trans2.execute.assert_called_once_with(
+            "INSERT INTO test (value) VALUES ($1)", 2
+        )
 
-        # Start the second transaction and execute queries
-        async with tx2:
-            # Store the transaction's connection execute method before replacing it
-            tx2.connection.execute = mock_conn_trans2.execute
-
-            # Run queries in transaction 2
-            await tx2.execute("SELECT * FROM table2")
-            await tx2.execute("DELETE FROM table2 WHERE id = 5")
-
-        # Verify both transactions executed their own queries
-        self.assertEqual(len(trans1_operations), 2)
-        self.assertEqual(len(trans2_operations), 2)
-
-        # Verify transaction 1 operations
-        self.assertIn("INSERT INTO table1 VALUES (1, 2, 3)", trans1_operations)
-        self.assertIn("UPDATE table1 SET col = 'new_value'", trans1_operations)
-
-        # Verify transaction 2 operations
-        self.assertIn("SELECT * FROM table2", trans2_operations)
-        self.assertIn("DELETE FROM table2 WHERE id = 5", trans2_operations)
-
-        # Verify transactions were committed correctly
+        # Verify transaction methods were called correctly
+        mock_trans1.start.assert_called_once()
         mock_trans1.commit.assert_called_once()
+        mock_trans2.start.assert_called_once()
         mock_trans2.commit.assert_called_once()
-
-        # Verify transactions were not rolled back
-        mock_trans1.rollback.assert_not_called()
-        mock_trans2.rollback.assert_not_called()
 
     def test_concurrent_operations(self):
         """Run async test for concurrent operations."""

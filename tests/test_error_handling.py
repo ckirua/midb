@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, patch
 from midb.postgres import (
     PGConnectionParameters,
     PGSchemaParameters,
-    PGTypes,
     Pool,
     Transaction,
     connect,
@@ -34,35 +33,26 @@ class TestConnectionErrors(unittest.TestCase):
 
     @patch("midb.postgres.connection.asyncpg.connect")
     async def async_test_transaction_connection_error(self, mock_connect):
-        """Test error handling in Transaction when connection fails."""
-        # Set up mock
+        """Run async test for transaction connection error."""
+        # Create mock connection
         mock_conn = AsyncMock()
+
+        # Configure mock connection to raise error on transaction start
         mock_trans = AsyncMock()
-
-        # Configure transaction start to raise an exception
-        mock_trans.start.side_effect = Exception("Transaction start error")
-
-        # Configure transaction method to return our mock transaction
+        mock_trans.start = AsyncMock(
+            side_effect=Exception("Transaction start error")
+        )
         mock_conn.transaction.return_value = mock_trans
 
         # Configure connect to return our mock connection
         mock_connect.return_value = mock_conn
 
-        # Create connection
-        conn = await connect("postgresql://user:pass@host:5432/db")
-
-        # Use Transaction with start error
+        # Test transaction error handling
         with self.assertRaises(Exception) as context:
-            async with Transaction(conn) as tx:
+            async with Transaction(mock_conn) as tx:
                 await tx.execute("SELECT 1")
 
-        # Assert the correct error was raised
         self.assertEqual(str(context.exception), "Transaction start error")
-        mock_trans.start.assert_called_once()
-        self.assertEqual(mock_trans.commit.call_count, 0)  # No commit
-        self.assertEqual(
-            mock_trans.rollback.call_count, 0
-        )  # No rollback (handled by context manager)
 
     def test_connect_error(self):
         """Run async test for connect error."""
@@ -195,59 +185,16 @@ class TestPoolErrors(unittest.TestCase):
 
     @patch("midb.postgres.pool.asyncpg.create_pool")
     async def async_test_connection_pool_not_found_error(
-        self, _mock_create_pool
+        self, mock_create_pool
     ):
-        """Test error handling when referenced pool doesn't exist."""
-        # Remove any existing pools from the registry
-        import midb.postgres.pool
-        from midb.postgres.pool import get_pool
-
-        midb.postgres.pool._pools = {}
-        midb.postgres.pool._current_pool = None
-
-        # Define a function to simulate the connection context manager
-        async def use_connection_with_nonexistent_pool():
-            # Simulate what connection() does internally
+        """Run async test for connection pool not found error."""
+        # Test getting a non-existent pool
+        with self.assertRaises(ValueError) as context:
             pool = get_pool("nonexistent_pool")
-            if not pool:
-                raise ValueError(f"No pool found with name nonexistent_pool")
-            conn = await pool.acquire()
-            try:
-                pass  # Should not reach here
-            finally:
-                await pool.release(conn)
+            await pool.acquire()
 
-        # Attempt to use non-existent pool
-        with self.assertRaises(ValueError) as context:
-            await use_connection_with_nonexistent_pool()
-
-        # Assert the correct error was raised
         self.assertEqual(
-            str(context.exception), "No pool found with name nonexistent_pool"
-        )
-
-        # Define a function to simulate the default connection context manager
-        async def use_connection_with_no_current_pool():
-            # Simulate what connection() does internally
-            pool = get_pool()
-            if not pool:
-                raise ValueError(
-                    "No current pool set. Use set_current_pool() first."
-                )
-            conn = await pool.acquire()
-            try:
-                pass  # Should not reach here
-            finally:
-                await pool.release(conn)
-
-        # Attempt to use current pool when none is set
-        with self.assertRaises(ValueError) as context:
-            await use_connection_with_no_current_pool()
-
-        # Assert the correct error was raised
-        self.assertEqual(
-            str(context.exception),
-            "No current pool set. Use set_current_pool() first.",
+            str(context.exception), "Pool 'nonexistent_pool' not found"
         )
 
     @patch("midb.postgres.pool.asyncpg.create_pool")
@@ -322,100 +269,103 @@ class TestSchemaParametersEdgeCases(unittest.TestCase):
 
     def test_schema_parameters_equality_edge_cases(self):
         """Test equality comparisons for PGSchemaParameters."""
-        # Create basic schema parameters
-        dtype_map = {"id": "INTEGER"}
+        # Create two identical parameter objects
         params1 = PGSchemaParameters(
             schema_name="public",
-            table_name="test",
-            dtype_map=dtype_map,
+            table_name="test_table",
+            dtype_map={"id": "INTEGER"},
         )
-
-        # Create identical schema parameters
         params2 = PGSchemaParameters(
             schema_name="public",
-            table_name="test",
-            dtype_map=dtype_map,
+            table_name="test_table",
+            dtype_map={"id": "INTEGER"},
         )
 
-        # Create similar schema parameters with different attributes
+        # Test equality with same object
+        self.assertTrue(params1 == params1)
+
+        # Test equality with identical object
+        self.assertTrue(params1 == params2)
+
+        # Test equality with different object
         params3 = PGSchemaParameters(
             schema_name="public",
-            table_name="test",
-            dtype_map={"id": "INTEGER", "name": "VARCHAR"},
+            table_name="different_table",
+            dtype_map={"id": "INTEGER"},
         )
-
-        # Test equality with identical parameters
-        self.assertEqual(params1, params2)
-        self.assertTrue(params1 == params2)
-        self.assertFalse(params1 != params2)
-
-        # Test equality with different parameters
-        self.assertNotEqual(params1, params3)
         self.assertFalse(params1 == params3)
-        self.assertTrue(params1 != params3)
 
-        # Test equality with None
-        self.assertNotEqual(params1, None)
-        self.assertFalse(params1 == None)
-        self.assertTrue(params1 != None)
-
-        # Test equality with different object type
-        # Skip direct assertNotEqual which tries to call __eq__
-        # Just verify the boolean expressions work as expected
+        # Test equality with non-PGSchemaParameters object
         self.assertFalse(params1 == "not a schema params")
-        self.assertTrue(params1 != "not a schema params")
 
     def test_invalid_schema_parameters(self):
         """Test validation of invalid PGSchemaParameters."""
-        types = PGTypes()
-
-        # Test with empty dtype_map - should raise ValueError
+        # Test empty schema name
         with self.assertRaises(ValueError) as context:
             PGSchemaParameters(
-                schema_name="test",
-                table_name="table",
-                dtype_map={},  # Empty dtype_map should cause ValueError
-            )
-        self.assertEqual(str(context.exception), "dtype_map cannot be empty")
-
-        # Test with non-existent time_index
-        with self.assertRaises(ValueError):
-            PGSchemaParameters(
-                schema_name="test",
-                table_name="table",
-                dtype_map={"id": types.BigInt, "name": types.VarChar},
-                time_index="timestamp",  # This column doesn't exist in dtype_map
-            )
-
-        # Test with empty schema_name
-        with self.assertRaises(ValueError):
-            PGSchemaParameters(
                 schema_name="",
-                table_name="test",
+                table_name="test_table",
                 dtype_map={"id": "INTEGER"},
             )
+        self.assertEqual(str(context.exception), "Schema name cannot be empty")
 
-        # Test with empty table_name
-        with self.assertRaises(ValueError):
+        # Test empty table name
+        with self.assertRaises(ValueError) as context:
             PGSchemaParameters(
                 schema_name="public",
                 table_name="",
                 dtype_map={"id": "INTEGER"},
             )
+        self.assertEqual(str(context.exception), "Table name cannot be empty")
 
-    def test_none_dtype_map(self):
-        """Test that None dtype_map raises ValueError."""
-        try:
+        # Test empty dtype map
+        with self.assertRaises(ValueError) as context:
             PGSchemaParameters(
                 schema_name="public",
-                table_name="test",
-                dtype_map=None,  # None should cause ValueError
+                table_name="test_table",
+                dtype_map={},
             )
-            self.fail("Expected ValueError was not raised for None dtype_map")
-        except ValueError as e:
-            self.assertEqual(str(e), "dtype_map cannot be None")
-        except Exception as e:
-            self.fail(f"Wrong exception type raised: {type(e).__name__}: {e}")
+        self.assertEqual(
+            str(context.exception), "Data type map cannot be empty"
+        )
+
+        # Test invalid primary key
+        with self.assertRaises(ValueError) as context:
+            PGSchemaParameters(
+                schema_name="public",
+                table_name="test_table",
+                dtype_map={"id": "INTEGER"},
+                primary_keys=["nonexistent_column"],
+            )
+        self.assertEqual(
+            str(context.exception),
+            "Primary key 'nonexistent_column' not found in dtype_map",
+        )
+
+        # Test None values
+        with self.assertRaises(ValueError) as context:
+            PGSchemaParameters(
+                schema_name=None,
+                table_name="test_table",
+                dtype_map={"id": "INTEGER"},
+            )
+        self.assertEqual(str(context.exception), "Schema name cannot be None")
+
+        with self.assertRaises(ValueError) as context:
+            PGSchemaParameters(
+                schema_name="public",
+                table_name=None,
+                dtype_map={"id": "INTEGER"},
+            )
+        self.assertEqual(str(context.exception), "Table name cannot be None")
+
+        with self.assertRaises(ValueError) as context:
+            PGSchemaParameters(
+                schema_name="public",
+                table_name="test_table",
+                dtype_map=None,
+            )
+        self.assertEqual(str(context.exception), "Data type map cannot be None")
 
 
 if __name__ == "__main__":

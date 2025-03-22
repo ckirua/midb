@@ -140,7 +140,7 @@ class Transaction:
         self.transaction = None
 
     async def __aenter__(self) -> "Transaction":
-        self.transaction = await self.connection.transaction(
+        self.transaction = self.connection.transaction(
             **self.transaction_kwargs
         )
         await self.transaction.start()

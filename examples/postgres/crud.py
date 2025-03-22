@@ -4,7 +4,7 @@ import os
 from typing import Dict, List, Optional, Union
 
 from dotenv import load_dotenv
-from midb.postgres import PGConnectionParameters, PGSchemaParameters, PGTypes, Pool
+from midb.postgres import PGConnectionParameters, PGTypes, Pool
 
 # Set up logging
 logging.basicConfig(
@@ -12,9 +12,6 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
-
-# Load environment variables from workspace root
-load_dotenv("/root/workspace/.env")
 
 # Product type hint
 Product = Dict[str, Union[int, str, float]]
@@ -29,7 +26,7 @@ async def setup_schema(conn) -> None:
         await conn.execute(
             f"""
             CREATE TABLE IF NOT EXISTS public.products (
-                id {types.serial} PRIMARY KEY,
+                id SERIAL PRIMARY KEY,
                 name {types.VarChar} NOT NULL,
                 description {types.VarChar},
                 price {types.DoublePrecision} NOT NULL,
@@ -68,34 +65,29 @@ async def create_product(
         raise
 
 
-async def create_products(pool, products: List[Product]) -> List[int]:
+async def create_products(conn, products: List[Product]) -> List[int]:
     """Create multiple products in a single transaction."""
     try:
         product_ids = []
 
-        # Get a connection from the pool
-        conn = await pool.acquire()
-        try:
-            # Start a transaction using the connection's transaction method
-            async with conn.transaction():
-                for product in products:
-                    product_id = await conn.fetchval(
-                        """
-                        INSERT INTO public.products (name, description, price, quantity) 
-                        VALUES ($1, $2, $3, $4)
-                        RETURNING id
-                        """,
-                        product["name"],
-                        product.get("description", ""),
-                        product["price"],
-                        product.get("quantity", 0),
-                    )
-                    product_ids.append(product_id)
+        # Start a transaction using the connection's transaction method
+        async with conn.transaction():
+            for product in products:
+                product_id = await conn.fetchval(
+                    """
+                    INSERT INTO public.products (name, description, price, quantity) 
+                    VALUES ($1, $2, $3, $4)
+                    RETURNING id
+                    """,
+                    product["name"],
+                    product.get("description", ""),
+                    product["price"],
+                    product.get("quantity", 0),
+                )
+                product_ids.append(product_id)
 
-            logger.info(f"Created {len(product_ids)} products in batch")
-            return product_ids
-        finally:
-            await pool.release(conn)
+        logger.info(f"Created {len(product_ids)} products in batch")
+        return product_ids
     except Exception as e:
         logger.error(f"Error creating products in batch: {e}")
         raise
@@ -124,11 +116,15 @@ async def search_products(conn, name_pattern: str) -> List[Product]:
         )
         return [dict(row) for row in rows]
     except Exception as e:
-        logger.error(f"Error searching products with pattern '{name_pattern}': {e}")
+        logger.error(
+            f"Error searching products with pattern '{name_pattern}': {e}"
+        )
         raise
 
 
-async def list_products(conn, limit: int = 100, offset: int = 0) -> List[Product]:
+async def list_products(
+    conn, limit: int = 100, offset: int = 0
+) -> List[Product]:
     """List all products with pagination."""
     try:
         rows = await conn.fetch(
@@ -182,7 +178,9 @@ async def update_product(conn, product_id: int, **kwargs) -> bool:
         raise
 
 
-async def update_stock(conn, product_id: int, quantity_change: int) -> Optional[int]:
+async def update_stock(
+    conn, product_id: int, quantity_change: int
+) -> Optional[int]:
     """Update product stock quantity, returning the new quantity."""
     try:
         new_quantity = await conn.fetchval(
@@ -231,31 +229,28 @@ async def delete_product(conn, product_id: int) -> bool:
         raise
 
 
-async def delete_products(pool, product_ids: List[int]) -> int:
+async def delete_products(conn, product_ids: List[int]) -> int:
     """Delete multiple products by IDs, returning count of deleted products."""
     if not product_ids:
         return 0
 
     try:
-        # Get a connection from the pool
-        conn = await pool.acquire()
-        try:
-            # Start a transaction using the connection's transaction method
-            async with conn.transaction():
-                # First count how many products will be deleted
-                count_query = (
-                    "SELECT COUNT(*) FROM public.products WHERE id = ANY($1::int[])"
-                )
-                count = await conn.fetchval(count_query, product_ids)
+        # Start a transaction using the connection's transaction method
+        async with conn.transaction():
+            # First count how many products will be deleted
+            count_query = (
+                "SELECT COUNT(*) FROM public.products WHERE id = ANY($1::int[])"
+            )
+            count = await conn.fetchval(count_query, product_ids)
 
-                # Then delete them
-                delete_query = "DELETE FROM public.products WHERE id = ANY($1::int[])"
-                await conn.execute(delete_query, product_ids)
+            # Then delete them
+            delete_query = (
+                "DELETE FROM public.products WHERE id = ANY($1::int[])"
+            )
+            await conn.execute(delete_query, product_ids)
 
-                logger.info(f"Deleted {count} products")
-                return count
-        finally:
-            await pool.release(conn)
+            logger.info(f"Deleted {count} products")
+            return count
     except Exception as e:
         logger.error(f"Error deleting products: {e}")
         raise
@@ -271,75 +266,36 @@ async def drop_products_table(conn) -> None:
         raise
 
 
-def create_schema_safely(schema_name, table_name, columns_dict):
-    """
-    Example of safely creating schema parameters while handling empty dictionary case.
+async def main():
+    """Main function to demonstrate CRUD operations."""
+    # Load environment variables from .env file
+    load_dotenv("/root/workspace/.env")
 
-    Args:
-        schema_name (str): The schema name
-        table_name (str): The table name
-        columns_dict (dict): Dictionary of column name to data type
-
-    Returns:
-        PGSchemaParameters: Valid schema parameters object
-
-    Raises:
-        ValueError: If columns_dict is empty and no default columns could be added
-    """
-    try:
-        # Try to create with the provided dictionary
-        return PGSchemaParameters(
-            schema_name=schema_name,
-            table_name=table_name,
-            dtype_map=columns_dict,
-        )
-    except ValueError as e:
-        # Handle the empty dictionary case
-        if "dtype_map cannot be empty" in str(e):
-            # Add at least an ID column as a default
-            default_types = PGTypes()
-            default_columns = {
-                "id": default_types.serial,
-                "created_at": default_types.TimeStampTz,
-            }
-            return PGSchemaParameters(
-                schema_name=schema_name,
-                table_name=table_name,
-                dtype_map=default_columns,
-            )
-        # Re-raise any other ValueError
-        raise
-
-
-# Example usage
-def example_schema_creation():
-    """Demonstrate safe schema creation with empty dictionary handling."""
-    # This will use default columns if user_columns is empty
-    user_columns = {}  # Empty dictionary from user input
-
-    try:
-        # This safely handles empty dictionary case
-        schema_params = create_schema_safely("public", "users", user_columns)
-        print(f"Created schema params: {schema_params}")
-        # Schema now contains default ID and timestamp columns
-        return schema_params
-    except ValueError as e:
-        print(f"Failed to create schema: {e}")
-        return None
-
-
-def get_connection_params():
-    """Get database connection parameters from environment variables."""
+    # Get database connection parameters from environment variables
     host = os.getenv("PG_HOST", "localhost")
     port = int(os.getenv("PG_PORT", "5432"))
     user = os.getenv("PG_USER", "postgres")
-    password = os.getenv("PG_PASSWORD", "password")
-    dbname = os.getenv("PG_DB", "postgres")
+    password = os.getenv("PG_PASSWORD", "postgres")
+    dbname = os.getenv(
+        "PG_DB", "postgres"
+    )  # Using PG_DB from .env instead of PG_DBNAME
+
+    # Print all environment variables for debugging
+    print("\n--- Environment Variables ---")
+    print(f"PG_HOST from env: {os.getenv('PG_HOST', 'Not set')}")
+    print(f"PG_PORT from env: {os.getenv('PG_PORT', 'Not set')}")
+    print(f"PG_USER from env: {os.getenv('PG_USER', 'Not set')}")
+    print(
+        f"PG_PASSWORD from env: {'*****' if os.getenv('PG_PASSWORD') else 'Not set'}"
+    )
+    print(f"PG_DB from env: {os.getenv('PG_DB', 'Not set')}")
+    print(f"PG_DBNAME from env: {os.getenv('PG_DBNAME', 'Not set')}")
+    print("----------------------------\n")
 
     print(f"Connecting to PostgreSQL at {host}:{port} as {user}")
 
     # Create connection parameters
-    return PGConnectionParameters(
+    conn_params = PGConnectionParameters(
         host=host,
         port=port,
         user=user,
@@ -347,29 +303,26 @@ def get_connection_params():
         dbname=dbname,
     )
 
+    # Print full connection URL (with password masked)
+    url = conn_params.to_url()
+    masked_url = url.replace(password, "******")
+    print(f"Connection URL: {masked_url}")
 
-async def main():
-    """Main function to demonstrate CRUD operations."""
-    # Load environment variables
-    load_dotenv()
+    # Print connection parameters as dictionary (with password masked)
+    params_dict = conn_params.to_dict()
+    params_dict_safe = params_dict.copy()
+    params_dict_safe["password"] = "******"
+    print(f"Connection parameters: {params_dict_safe}")
 
-    # Create connection parameters
-    params = get_connection_params()
-
-    # Create the database pool
-    pool = Pool(params)
-    await pool.initialize()
+    # Create a connection pool
+    pool = Pool(conn_params, min_size=2, max_size=10, name="crud_example")
 
     try:
-        # Demonstrate empty dictionary handling
-        print("\n=== Example of handling empty dtype_map ===")
-        schema_params = example_schema_creation()
-        if schema_params:
-            print(
-                f"Successfully created schema with default columns: {schema_params.dtype_map}"
-            )
+        # Initialize the pool
+        await pool.initialize()
+        logger.info("Connected to PostgreSQL database")
 
-        # Create table - first drop if exists
+        # Set up schema
         await setup_schema(pool)
 
         # Demo: Create products

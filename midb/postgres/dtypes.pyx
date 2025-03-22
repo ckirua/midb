@@ -20,6 +20,7 @@ cdef class PGTypes:
         self.JSONB = "JSONB"
         self.BOOLEAN = "BOOLEAN"
         self.SERIAL = "SERIAL"
+        self.DECIMAL = "DECIMAL"
         
         # Legacy style names (for backward compatibility)
         self.VarChar = self.VARCHAR
@@ -33,6 +34,7 @@ cdef class PGTypes:
         self.Jsonb = self.JSONB
         self.Boolean = self.BOOLEAN
         self.serial = self.SERIAL
+        self.Decimal = self.DECIMAL
 
     # Public Python method to create VARCHAR with length
     @staticmethod

@@ -71,19 +71,6 @@ cdef class PGSchemaParameters:
         self.dtype_map = dtype_map
         self.time_index = time_index
         
-        # Validate schema_name and table_name
-        if not schema_name:
-            raise ValueError("schema_name cannot be empty")
-        if not table_name:
-            raise ValueError("table_name cannot be empty")
-        
-        # Check if dtype_map is None - explicitly raise ValueError
-        if dtype_map is None:
-            raise ValueError("dtype_map cannot be None")
-        # Validate dtype_map is not empty
-        elif not dtype_map:
-            raise ValueError("dtype_map cannot be empty")
-        
         # Validate time_index against dtype_map
         if self.time_index is not None and not PyDict_Contains(self.dtype_map, self.time_index):
             raise ValueError(
@@ -100,7 +87,7 @@ cdef class PGSchemaParameters:
         self.time_index = None
         self.primary_keys = None
 
-    def __richcmp__(self, other, int op):
+    def __richcmp__(self, PGSchemaParameters other, int op):
         """
         Rich comparison implementation for equality testing.
         Supports == and != operators.
@@ -111,31 +98,22 @@ cdef class PGSchemaParameters:
             elif op == 3:  # !=
                 return True
             return NotImplemented
-        
-        # Check if other is a PGSchemaParameters
-        if not isinstance(other, PGSchemaParameters):
-            if op == 2:  # ==
-                return False
-            elif op == 3:  # !=
-                return True
-            return NotImplemented
 
-        cdef PGSchemaParameters typed_other = <PGSchemaParameters>other
         if op == 2:  # ==
             return (
-                self.schema_name == typed_other.schema_name
-                and self.table_name == typed_other.table_name
-                and self.dtype_map == typed_other.dtype_map
-                and self.time_index == typed_other.time_index
-                and self.primary_keys == typed_other.primary_keys
+                self.schema_name == other.schema_name
+                and self.table_name == other.table_name
+                and self.dtype_map == other.dtype_map
+                and self.time_index == other.time_index
+                and self.primary_keys == other.primary_keys
             )
         elif op == 3:  # !=
             return (
-                self.schema_name != typed_other.schema_name
-                or self.table_name != typed_other.table_name
-                or self.dtype_map != typed_other.dtype_map
-                or self.time_index != typed_other.time_index
-                or self.primary_keys != typed_other.primary_keys
+                self.schema_name != other.schema_name
+                or self.table_name != other.table_name
+                or self.dtype_map != other.dtype_map
+                or self.time_index != other.time_index
+                or self.primary_keys != other.primary_keys
             )
         return NotImplemented
     

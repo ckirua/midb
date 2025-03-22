@@ -252,11 +252,7 @@ class TestTSDBSql(unittest.TestCase):
 
         # Test with custom interval
         hypertable_sql = self.sql.create_hypertable(
-            "metrics",
-            "test",
-            "time",
-            interval="12 hours",
-            extra_params={"chunk_time_interval": "12 hours"},
+            "metrics", "test", "time", "12 hours"
         )
         self.assertIn(
             "chunk_time_interval => interval '12 hours'", hypertable_sql
