@@ -74,12 +74,33 @@ class TestPGTypes(unittest.TestCase):
         """Test basic data type constants."""
         types = PGTypes()
 
-        # Check standard types
-        self.assertEqual(types.VarChar, "VARCHAR")
-        self.assertEqual(types.BigInt, "BIGINT")
-        self.assertEqual(types.Real, "REAL")
-        self.assertEqual(types.DoublePrecision, "DOUBLE PRECISION")
-        self.assertEqual(types.TimeStampTz, "TIMESTAMPTZ")
+        # Check standard types (PEP-8 style)
+        self.assertEqual(types.VARCHAR, "VARCHAR")
+        self.assertEqual(types.BIGINT, "BIGINT")
+        self.assertEqual(types.INTEGER, "INTEGER")
+        self.assertEqual(types.REAL, "REAL")
+        self.assertEqual(types.DOUBLE_PRECISION, "DOUBLE PRECISION")
+        self.assertEqual(types.TIMESTAMPTZ, "TIMESTAMPTZ")
+        self.assertEqual(types.TIMESTAMP, "TIMESTAMP")
+        self.assertEqual(types.FLOAT, "FLOAT")
+        self.assertEqual(types.JSONB, "JSONB")
+        self.assertEqual(types.BOOLEAN, "BOOLEAN")
+        self.assertEqual(types.SERIAL, "SERIAL")
+        self.assertEqual(types.DECIMAL, "DECIMAL")
+
+        # Check legacy style names
+        self.assertEqual(types.VarChar, types.VARCHAR)
+        self.assertEqual(types.BigInt, types.BIGINT)
+        self.assertEqual(types.Integer, types.INTEGER)
+        self.assertEqual(types.Real, types.REAL)
+        self.assertEqual(types.DoublePrecision, types.DOUBLE_PRECISION)
+        self.assertEqual(types.TimeStampTz, types.TIMESTAMPTZ)
+        self.assertEqual(types.TimeStamp, types.TIMESTAMP)
+        self.assertEqual(types.Float, types.FLOAT)
+        self.assertEqual(types.Jsonb, types.JSONB)
+        self.assertEqual(types.Boolean, types.BOOLEAN)
+        self.assertEqual(types.serial, types.SERIAL)
+        self.assertEqual(types.Decimal, types.DECIMAL)
 
     def test_lambda_varchar(self):
         """Test VARCHAR with length specification."""
